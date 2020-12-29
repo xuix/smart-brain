@@ -9,6 +9,8 @@ import Particles from "react-particles-js";
 import FaceRecognition from "../components/FaceRecognition/FaceRecognition";
 import Signin from "../components/Signin/Signin";
 import Register from "../components/Register/Register";
+import Modal from "../components/Modal/Modal";
+import Profile from "../components/Profile/Profile";
 
 const particlesOptions = {
   //customize this to your liking
@@ -29,16 +31,19 @@ const initialState = {
   boxes: [],
   route: "signin",
   isSignedIn: false,
+  isProfileOpen: false,
   user: {
     id: "",
     name: "",
     email: "",
     password: "",
     entries: 0,
+    pet: "",
+    age: 0,
     joined: "",
   },
 };
-
+//to put on heroku, also need to change the package.json start script
 //export const baseURL = "https://mighty-gorge-68030.herokuapp.com"
 export const baseURL = "http://localhost:3000";
 
@@ -48,6 +53,7 @@ class App extends Component {
     this.state = initialState;
   }
   loadUser = (data) => {
+    console.log("##loading user", data);
     this.setState({
       user: {
         id: data.id,
@@ -56,6 +62,8 @@ class App extends Component {
         password: data.password,
         entries: data.entries,
         joined: data.joined,
+        pet: data.pet,
+        age: data.age,
       },
     });
 
@@ -63,11 +71,13 @@ class App extends Component {
   };
 
   calculateFaceLocation = (data) => {
-    const regions = data.outputs[0].data.regions;
-    const inputImage = document.getElementById("inputimage");
-    const width = Number(inputImage.width);
-    const height = Number(inputImage.height);
-    return regions.map((region) => this.calculateBox(region, width, height));
+    if (data && data.outputs) {
+      const regions = data.outputs[0].data.regions;
+      const inputImage = document.getElementById("inputimage");
+      const width = Number(inputImage.width);
+      const height = Number(inputImage.height);
+      return regions.map((region) => this.calculateBox(region, width, height));
+    } else return;
   };
 
   calculateBox = (region, width, height) => {
@@ -82,7 +92,9 @@ class App extends Component {
   };
 
   storeFaceLocation = (boxes) => {
-    this.setState({ boxes: boxes });
+    if (boxes) {
+      this.setState({ boxes: boxes });
+    }
   };
 
   onSearchChange = (event) => {
@@ -100,7 +112,10 @@ class App extends Component {
     //     this.state.imageUrl)
     fetch(`${baseURL}/imageApiCall`, {
       method: "post",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: window.sessionStorage.getItem("token"),
+      },
       body: JSON.stringify({ imageURL: this.state.imageUrl }),
     })
       .then((response) => response.json())
@@ -116,7 +131,10 @@ class App extends Component {
 
     fetch(`${baseURL}/image`, {
       method: "put",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: window.sessionStorage.getItem("token"),
+      },
       body: JSON.stringify({ id: this.state.user.id }),
     })
       .then((res) => res.json())
@@ -133,19 +151,66 @@ class App extends Component {
   onRouteChange = (route) => {
     console.log("!!clicked routechange", route);
     if (route === "home") this.setState({ isSignedIn: true });
-    else this.setState(initialState);
+    else if (route === "register") this.setState(initialState);
     this.setState({ route: route });
   };
 
+  toggleModal = () => {
+    this.setState((prevState) => ({
+      ...prevState,
+      isProfileOpen: !prevState.isProfileOpen,
+    }));
+  };
+
   componentDidMount() {
-    // fetch('http://localhost:3000')
-    // .then(resp=>resp.json())
-    // .then(data=>console.log(data))
-    // console.log('!!!!!!!!')
+    const token = window.sessionStorage.getItem("token");
+    console.log("###component did mount ");
+
+    if (token) {
+      fetch(`${baseURL}/signin`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token,
+        },
+      })
+        .then((resp) => resp.json())
+        .then((data) => {
+          console.log("###success we got CDM DATA", data);
+
+          if (data && data.id) {
+            console.log("###success we need to get user  profile");
+            fetch(`${baseURL}/profile/${data.id}`, {
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: token,
+              },
+            })
+              .then((res) => res.json())
+              .then((user) => {
+                console.log("about to load user", user);
+                if (user && user.email) {
+                  this.loadUser(user);
+                  this.onRouteChange("home");
+                }
+              })
+              .catch((err) => console.log("!!error submitting form=", err));
+          }
+        })
+        .catch((err) => console.log("!!error component did mount=", err));
+    }
   }
 
   render() {
-    const { imageUrl, isSignedIn, boxes, route } = this.state;
+    const {
+      imageUrl,
+      isSignedIn,
+      boxes,
+      route,
+      isProfileOpen,
+      user,
+    } = this.state;
 
     return (
       <div className="App">
@@ -153,9 +218,20 @@ class App extends Component {
         <Navigation
           onRouteChange={this.onRouteChange}
           isSignedIn={isSignedIn}
+          toggleModal={this.toggleModal}
         />
+        {/* if isProfileOpen is true display the Modal */}
+        {isProfileOpen && (
+          <Modal>
+            <Profile
+              isProfileOpen={isProfileOpen}
+              toggleModal={this.toggleModal}
+              user={user}
+              loadUser={this.loadUser}
+            />
+          </Modal>
+        )}
         <Logo />
-
         {route === "home" ? (
           <div>
             <Rank user={this.state.user} />
@@ -166,6 +242,13 @@ class App extends Component {
             <FaceRecognition imageUrl={imageUrl} boxes={boxes} />
           </div>
         ) : route === "signin" ? (
+          <div>
+            <Signin
+              onRouteChange={this.onRouteChange}
+              loadUser={this.loadUser}
+            />
+          </div>
+        ) : route === "signout" ? (
           <div>
             <Signin
               onRouteChange={this.onRouteChange}
